@@ -10,15 +10,34 @@ RUN yum -y install git
 RUN yum -y install rpm-build
 RUN yum -y install yum-utils
 RUN yum -y install rpmdevtools
-RUN yum -y install vim
+RUN yum -y install vim-enhanced
+RUN yum -y install sed
+RUN yum -y install sudo
+RUN yum -y install passwd
+RUN yum -y install sed
+RUN yum -y install screen
+RUN yum -y install tmux
+RUN yum -y install byobu
+RUN yum -y install which
+RUN yum -y install wget
 
-# Setup sshd to accept login
-RUN yum -y install openssh-server
-RUN sed -ri 's/UsePAM yes/#UsePAM yes/g' /etc/ssh/sshd_config
-RUN sed -ri 's/#UsePAM no/UsePAM no/g' /etc/ssh/sshd_config
-RUN /etc/init.d/sshd start
-RUN /etc/init.d/sshd stop
-EXPOSE 22
+# add local path
+ADD local.sh /etc/profile.d/local.sh
+RUN chmod +x /etc/profile.d/local.sh
+
+# Install & Setup sshd to accept login
+RUN yum install -y initscripts openssh openssh-server openssh-clients
+RUN sshd-keygen
+RUN sed -i "s/#UsePrivilegeSeparation.*/UsePrivilegeSeparation no/g" /etc/ssh/sshd_config && sed -i "s/UsePAM.*/UsePAM no/g" /etc/ssh/sshd_config
+
+# setup default user
+RUN useradd build -G wheel -s /bin/bash -m
+RUN echo 'build:build' | chpasswd
+RUN echo '%wheel ALL=(ALL) ALL' >> /etc/sudoers
+RUN su - build -c "byobu-launcher-install"
+
+# install development tools
+RUN yum groupinstall -y "Development tools"
 
 # Setup rpm build configuration for root user
 RUN rpmdev-setuptree
@@ -27,15 +46,12 @@ RUN echo '%_topdir %(echo $HOME)/rpmbuild' > ~/.rpmmacros
 # Setup rpm build configuration for general user 'build'
 RUN yum -y install sudo
 RUN sed -i 's/requiretty/!requiretty/' /etc/sudoers
-RUN echo 'build ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
-RUN useradd -d /home/build -p `openssl passwd -1 "build"` build
 RUN sudo -ubuild rpmdev-setuptree
 RUN sudo -ubuild echo '%_topdir %(echo $HOME)/rpmbuild' > ~/.rpmmacros
 
 # Apache http server
 RUN yum -y install httpd; yum clean all
 RUN echo "Apache HTTPD" >> /var/www/html/index.html
-EXPOSE 80
 
 RUN wget --no-cookies --no-check-certificate --header "Cookie: gpw_e24=http%3A%2F%2Fwww.oracle.com%2F; oraclelicense=accept-securebackup-cookie" -O jdk-linux-x64.rpm "http://download.oracle.com/otn-pub/java/jdk/7u79-b15/jdk-7u79-linux-x64.rpm"
 RUN rpm -Uvh jdk-linux-x64.rpm
@@ -71,5 +87,13 @@ RUN echo "export NODE_PATH=/usr/local/lib/node_modules" >> /root/.bashrc
 RUN echo "export M2_HOME=/usr/local/apache-maven-3.3.3" >> /root/.bashrc
 RUN echo "export PATH=\${M2_HOME}/bin:/usr/local/bin:\${PATH}" >> /root/.bashrc
 
+# make ssh dir
+RUN mkdir -p /root/.ssh/
+
+# create known_hosts
+RUN touch /root/.ssh/known_hosts
+
+EXPOSE 80 22 443
+
 # Set default `docker run` command behavior
-CMD /usr/sbin/sshd -D
+CMD ["/usr/sbin/sshd", "-D"]
